@@ -1,0 +1,12 @@
+[package]
+name = "glrepo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simple_logger = {version = "2", features = ["stderr"]}
+serde = {version = "1", features = ["derive"]}
+log = "0.4"
+git2 = "0.13"
+clap = {version = "3", features = ["derive"]}
+serde_yaml = "0.8"
