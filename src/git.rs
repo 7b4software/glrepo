@@ -34,21 +34,31 @@ impl fmt::Display for ChangedFiles {
 }
 
 impl Git {
-    fn fetch(repo: &Repository, proj: &GlProject) -> Result<()> {
+    fn fetch_options(project_name: &str) -> FetchOptions<'static> {
         let mut cb = git2::RemoteCallbacks::new();
-        cb.transfer_progress(|tp| {
-            println!(
-                "Received: {} of {}",
+        let project_name = project_name.to_string();
+        println!();
+        cb.transfer_progress(move |tp| {
+            print!(
+                "\r{}: received objects: {:08} of {:08}",
+                project_name,
                 tp.received_objects(),
                 tp.total_objects()
             );
             true
         });
-        let mut fopt = FetchOptions::new();
+
+        let mut fopt = git2::FetchOptions::new();
         fopt.remote_callbacks(cb);
         fopt.download_tags(git2::AutotagOption::All);
+        fopt
+    }
+
+    fn fetch(&self, name: &str, proj: &GlProject) -> Result<()> {
+        let mut fopt = Self::fetch_options(name);
         let refs = vec![&proj.revision];
-        repo.find_remote("origin")
+        self.repo
+            .find_remote("origin")
             .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
             .map_err(|e| Error::Git("fetch", e))
     }
@@ -61,18 +71,26 @@ impl Git {
         })
     }
 
+    ///
     /// Sync with upstream
     /// Doing clone path not exists
     /// Doing fetch if exists
-    pub fn sync(project: &GlProject) -> Result<Self> {
-        let repo = if project.path.exists() {
-            Self::open(&project.path)?.repo
+    ///
+    /// Return git object or an Error
+    pub fn sync(project_name: &str, project: &GlProject) -> Result<Self> {
+        if project.path.exists() {
+            let git = Self::open(&project.path)?;
+            git.fetch(project_name, &project)?;
+            Ok(git)
         } else {
-            Repository::clone(&project.fetch_url, &project.path)
-                .map_err(|e| Error::Git("clone", e))?
-        };
-        Self::fetch(&repo, project)?;
-        Ok(Self { repo })
+            let fops = Self::fetch_options(project_name);
+            let mut builder = git2::build::RepoBuilder::new();
+            builder.fetch_options(fops);
+            let repo = builder
+                .clone(&project.fetch_url, &project.path)
+                .map_err(|e| Error::Git("clone", e))?;
+            Ok(Self { repo })
+        }
     }
 
     pub fn status(&self) -> Result<Statuses> {

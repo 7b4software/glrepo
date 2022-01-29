@@ -6,6 +6,8 @@ pub enum Error {
     General(String),
     ProjectNotFound(String),
     Manifest(String),
+    ShellCommand(String, std::io::Error),
+    ShellCommandTimeout(String),
 }
 
 impl fmt::Display for Error {
@@ -15,6 +17,10 @@ impl fmt::Display for Error {
             Error::General(s) => write!(f, "General: {}", s),
             Error::ProjectNotFound(name) => write!(f, "Project: '{}' not found.", name),
             Error::Manifest(s) => write!(f, "Manifest: {}", s),
+            Error::ShellCommand(s, e) => write!(f, "Shell command: '{}' failed cause: '{}'", s, e),
+            Error::ShellCommandTimeout(s) => {
+                write!(f, "Shell command: '{}' failed cause: 'timeout'", s)
+            }
         }
     }
 }

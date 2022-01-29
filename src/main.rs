@@ -8,6 +8,11 @@ use error::{Error, Result};
 use git::Git;
 use manifest::GlProjects;
 use std::path::Path;
+use std::process;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use threadpool::ThreadPool;
 ///
 /// Read YAML Manifest from and return GlProjects structure on success.
 /// # Arguments
@@ -76,14 +81,85 @@ fn do_single_command(args: &Args, projects: &GlProjects) -> Result<bool> {
 /// return GlRepo::Error on failure.
 ///
 fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
-    // For each commands are handled here...
-    for (name, project) in &projects.projects {
+    let (tx, rx) = channel();
+    if projects.projects.is_empty() {
+        log::warn!("There is no projects in the manifest");
+        return Ok(());
+    }
+
+    let pool = ThreadPool::new(args.jobs);
+
+    // Increment by one to make sure we don't accidently
+    // terminate before all threads has been pushed
+    // to the threadpool.
+    let pending = Arc::new(Mutex::new(AtomicUsize::new(1)));
+    let projects = projects.projects.clone();
+    for (name, project) in projects {
         match &args.command {
             Command::Sync { projects } => {
-                if projects.is_empty() || projects.iter().any(|p| p == name) {
-                    log::info!("Sync: {}", name);
-                    Git::sync(project)?;
+                if projects.is_empty() || projects.iter().any(|p| *p == name) {
+                    let tx2 = tx.clone();
+                    let p2 = pending.clone();
+                    p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
+                    // Add function to ThreadPool
+                    pool.execute(move || {
+                        log::info!("Sync: {}", name);
+                        if let Err(e) = Git::sync(&name, &project) {
+                            tx2.send(e).ok();
+                        }
+                        p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
+                    });
                 }
+            }
+            Command::ForEach { cmds } => {
+                let cmds = cmds.clone();
+                let tx2 = tx.clone();
+                let p2 = pending.clone();
+                p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
+                // Add function to ThreadPool
+                pool.execute(move || {
+                    match process::Command::new("sh")
+                        .current_dir(project.path)
+                        .stdin(process::Stdio::null())
+                        .stdout(process::Stdio::inherit())
+                        .stderr(process::Stdio::inherit())
+                        .arg("-c")
+                        .args(&cmds)
+                        .spawn()
+                    {
+                        Ok(mut child) => {
+                            let mut timeout = 20;
+                            while timeout > 0 {
+                                match child.try_wait() {
+                                    Ok(Some(status)) => {
+                                        log::info!(
+                                            "Project: '{}' Command: '{}' Exit code: {}",
+                                            name,
+                                            cmds.join(" "),
+                                            status.code().unwrap_or(255)
+                                        );
+                                        break;
+                                    }
+                                    Ok(None) => { // Still running
+                                    }
+                                    Err(e) => {
+                                        tx2.send(Error::ShellCommand(cmds.join(" "), e)).ok();
+                                    }
+                                }
+                                timeout -= 1;
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            }
+                            if timeout == 0 {
+                                tx2.send(Error::ShellCommandTimeout(cmds.join(" "))).ok();
+                            }
+                        }
+                        Err(e) => {
+                            tx2.send(Error::ShellCommand(cmds.join(" "), e)).ok();
+                        }
+                    }
+
+                    p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
+                });
             }
             Command::Changed { ls_files } => match Git::open(&project.path) {
                 Ok(repo) => {
@@ -103,7 +179,20 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
             _ => panic!("Command: {:#?} not implemented", args.command),
         }
     }
-
+    // okey, all projects are now pushed decrement by one
+    // and then wait until all Projects has done it's job.
+    pending.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
+    while *pending.lock().unwrap().get_mut() > 0 {
+        match rx.try_recv() {
+            Ok(e) => {
+                log::error!("{}", e);
+            }
+            Err(_) => {
+                // timeout or thread dead yeah...
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
     Ok(())
 }
 

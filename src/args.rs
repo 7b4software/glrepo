@@ -7,6 +7,8 @@ pub enum Command {
     Init,
     /// Sync one or all upstream
     Sync { projects: Vec<String> },
+    /// For each run command in shell
+    ForEach { cmds: Vec<String> },
     /// List projects configuration
     List {
         #[clap(short, long)]
@@ -36,6 +38,9 @@ pub struct Args {
     /// Verbose flag 0 info, 1 debug, >= 2 trace.
     #[clap(long, short, parse(from_occurrences))]
     pub verbose: usize,
+    /// Number of parallel jobs
+    #[clap(long, short, default_value = "1")]
+    pub jobs: usize,
     #[clap(subcommand)]
     pub command: Command,
 }
@@ -49,6 +54,8 @@ impl Args {
             _ => log::LevelFilter::Trace,
         };
 
+        // At least one job
+        args.jobs = std::cmp::max(args.jobs, 1);
         let _ = simple_logger::SimpleLogger::new()
             .without_timestamps()
             .with_level(level)

@@ -2,6 +2,7 @@
 name = "glrepo"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 simple_logger = {version = "2", features = ["stderr"]}
