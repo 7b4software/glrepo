@@ -36,7 +36,7 @@ fn do_single_action(args: &Args, projects: &GlProjects) -> Result<bool, Error> {
 fn run_main() -> Result<(), Error> {
     let args = Args::init()?;
     let projects = load_manifest(&args)?;
-    if do_single_action(&args, &projects)? == true {
+    if do_single_action(&args, &projects)? {
         return Ok(());
     }
     for (name, project) in &projects.projects {

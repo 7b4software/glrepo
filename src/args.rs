@@ -1,5 +1,5 @@
 use crate::error::Error;
-use clap::{ArgEnum, Parser};
+use clap::{Parser};
 use std::path::{Path, PathBuf};
 #[derive(Parser, Debug)]
 pub enum Command {

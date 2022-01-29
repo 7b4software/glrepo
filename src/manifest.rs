@@ -25,8 +25,8 @@ impl GlProjects {
     ///
     pub fn try_from_yaml<P: AsRef<Path>>(manifest_file: &P) -> Result<Self, io::Error> {
         let s = fs::read_to_string(manifest_file)?;
-        Ok(serde_yaml::from_str::<GlProjects>(&s)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?)
+        serde_yaml::from_str::<GlProjects>(&s)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))
     }
 
     pub fn insert(&mut self, name: &str, project: GlProject) {
@@ -57,7 +57,7 @@ impl fmt::Display for GlProjects {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (name, project) in &self.projects {
             writeln!(f, "# {}", name)?;
-            writeln!(f, "")?;
+            writeln!(f)?;
             writeln!(f, "{}", project)?;
         }
         write!(f, "")
