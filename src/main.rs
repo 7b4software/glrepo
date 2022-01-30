@@ -2,13 +2,13 @@ mod args;
 mod error;
 mod git;
 mod manifest;
+mod process;
 mod threadpool;
 use args::{Args, Command};
 use error::{Error, Result};
 use git::Git;
 use manifest::GlProjects;
 use std::path::Path;
-use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
@@ -111,53 +111,22 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
                     });
                 }
             }
-            Command::ForEach { cmds } => {
-                let cmds = cmds.clone();
+            Command::ForEach { args, timeout_ms } => {
+                let timeout_ms = timeout_ms.clone();
+                let args = args.clone();
                 let tx2 = tx.clone();
                 let p2 = pending.clone();
                 p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
                 // Add function to ThreadPool
                 pool.execute(move || {
-                    match process::Command::new("sh")
-                        .current_dir(project.path)
-                        .stdin(process::Stdio::null())
-                        .stdout(process::Stdio::inherit())
-                        .stderr(process::Stdio::inherit())
-                        .arg("-c")
-                        .args(&cmds)
-                        .spawn()
-                    {
-                        Ok(mut child) => {
-                            let mut timeout = 20;
-                            while timeout > 0 {
-                                match child.try_wait() {
-                                    Ok(Some(status)) => {
-                                        log::info!(
-                                            "Project: '{}' Command: '{}' Exit code: {}",
-                                            name,
-                                            cmds.join(" "),
-                                            status.code().unwrap_or(255)
-                                        );
-                                        break;
-                                    }
-                                    Ok(None) => { // Still running
-                                    }
-                                    Err(e) => {
-                                        tx2.send(Error::ShellCommand(cmds.join(" "), e)).ok();
-                                    }
-                                }
-                                timeout -= 1;
-                                std::thread::sleep(std::time::Duration::from_millis(50));
-                            }
-                            if timeout == 0 {
-                                tx2.send(Error::ShellCommandTimeout(cmds.join(" "))).ok();
-                            }
-                        }
-                        Err(e) => {
-                            tx2.send(Error::ShellCommand(cmds.join(" "), e)).ok();
-                        }
+                    if let Err(e) = process::spawn_shell_and_wait(
+                        &name,
+                        &project.path,
+                        args,
+                        std::time::Duration::from_millis(timeout_ms),
+                    ) {
+                        tx2.send(e).ok();
                     }
-
                     p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
                 });
             }

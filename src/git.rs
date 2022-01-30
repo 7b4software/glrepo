@@ -71,6 +71,21 @@ impl Git {
         })
     }
 
+    pub fn init<P: AsRef<Path>>(path: P) -> Result<Self> {
+        if path.as_ref().exists() {
+            return Self::open(&path);
+        }
+        Ok(Self {
+            repo: Repository::init(path).map_err(|e| Error::Git("init", e))?,
+        })
+    }
+
+    pub fn remote(&self, name: &str, url: &str) -> Result<git2::Remote> {
+        self.repo
+            .remote(name, url)
+            .map_err(|e| Error::Git("remote", e))
+    }
+
     ///
     /// Sync with upstream
     /// Doing clone path not exists

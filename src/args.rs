@@ -8,7 +8,13 @@ pub enum Command {
     /// Sync one or all upstream
     Sync { projects: Vec<String> },
     /// For each run command in shell
-    ForEach { cmds: Vec<String> },
+    ForEach {
+        /// Arguments passed to the shell process.
+        args: Vec<String>,
+        /// Max time, in milliseconds, before child process gets killed.
+        #[clap(short, long, default_value = "500")]
+        timeout_ms: u64,
+    },
     /// List projects configuration
     List {
         #[clap(short, long)]
