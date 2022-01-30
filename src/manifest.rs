@@ -1,3 +1,4 @@
+use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -40,8 +41,14 @@ impl GlProjects {
     ///
     /// * `manifest_file` full path to YAML manifest.
     ///
-    pub fn save_to_yaml<P: AsRef<Path>>(&self, manifest: P) -> Result<(), io::Error> {
-        fs::write(manifest, serde_yaml::to_string(self).unwrap())
+    pub fn save_to_yaml<P: AsRef<Path>>(&self, manifest: &P) -> Result<(), Error> {
+        fs::write(manifest, serde_yaml::to_string(self).unwrap()).map_err(|e| {
+            Error::Manifest(format!(
+                "output to: '{}' cause: '{}'",
+                manifest.as_ref().display(),
+                e
+            ))
+        })
     }
 }
 

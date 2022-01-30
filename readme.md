@@ -10,3 +10,8 @@ W means work is progress.
  - [W] Sync
  - [x] List projects
  - [W] List changed projects
+ - [x] Create project
+
+ # known issues
+
+  - Sync does not setup a branch correctly after fetch/clone.

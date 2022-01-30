@@ -7,10 +7,10 @@ pub enum Command {
     Init,
     /// Sync one or all upstream
     Sync { projects: Vec<String> },
-    /// For each run command in shell
+    /// run command in shell on each project
     ForEach {
         /// Arguments passed to the shell process.
-        args: Vec<String>,
+        args: String,
         /// Max time, in milliseconds, before child process gets killed.
         #[clap(short, long, default_value = "500")]
         timeout_ms: u64,
@@ -29,6 +29,24 @@ pub enum Command {
         /// List changed files in the project.
         #[clap(short, long)]
         ls_files: bool,
+    },
+    /// Create a new project. Command will fail if project already exist in manifest.
+    Create {
+        /// Run command after creation. (use " around command. Example: -c "ls -l --color")
+        #[clap(short = 'c', long)]
+        run_command: String,
+        /// Max time, in milliseconds, before child process gets killed.
+        #[clap(short, long, default_value = "500")]
+        timeout_ms: u64,
+        /// Project name
+        project_name: String,
+        /// Path to store local repository
+        path: PathBuf,
+        /// URL to remote repo
+        fetch_url: String,
+        /// revision or branch
+        #[clap(default_value = "main")]
+        revision: String,
     },
 }
 

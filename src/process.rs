@@ -17,7 +17,7 @@ use std::{thread, time};
 pub fn spawn_shell_and_wait(
     project_name: &str,
     working_directory: &Path,
-    args: Vec<String>,
+    args: String,
     timeout: time::Duration,
 ) -> Result<()> {
     let now = time::Instant::now();
@@ -27,7 +27,7 @@ pub fn spawn_shell_and_wait(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .arg("-c")
-        .args(&args)
+        .arg(&args)
         .spawn()
     {
         Ok(mut child) => {
@@ -39,26 +39,20 @@ pub fn spawn_shell_and_wait(
                                 log::info!(
                                     "Project: '{}' Command: '{}' Exit success.",
                                     project_name,
-                                    args.join(" "),
+                                    args,
                                 );
                                 Ok(())
                             }
-                            Some(code) => Err(Error::ShellCommandExit(
-                                project_name.into(),
-                                args.join(" "),
-                                code,
-                            )),
-                            None => Err(Error::ShellCommandExit(
-                                project_name.into(),
-                                args.join(" "),
-                                0xDEAD,
-                            )),
+                            Some(code) => {
+                                Err(Error::ShellCommandExit(project_name.into(), args, code))
+                            }
+                            None => Err(Error::ShellCommandExit(project_name.into(), args, 0xDEAD)),
                         };
                         return res;
                     }
                     Ok(None) => { /* Still running */ }
                     Err(e) => {
-                        return Err(Error::ShellCommand(project_name.into(), args.join(" "), e));
+                        return Err(Error::ShellCommand(project_name.into(), args, e));
                     }
                 }
                 thread::sleep(std::time::Duration::from_millis(50));
@@ -68,13 +62,10 @@ pub fn spawn_shell_and_wait(
             }
             // Still running
             if let Err(e) = child.kill() {
-                return Err(Error::ShellCommand(project_name.into(), args.join(" "), e));
+                return Err(Error::ShellCommand(project_name.into(), args, e));
             }
-            Err(Error::ShellCommandTimeout(
-                project_name.into(),
-                args.join(" "),
-            ))
+            Err(Error::ShellCommandTimeout(project_name.into(), args))
         }
-        Err(e) => Err(Error::ShellCommand(project_name.into(), args.join(" "), e)),
+        Err(e) => Err(Error::ShellCommand(project_name.into(), args, e)),
     }
 }

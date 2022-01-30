@@ -47,7 +47,7 @@ fn load_manifest<P: AsRef<Path>>(p: P) -> Result<GlProjects> {
 /// # Error
 ///
 /// see GlRepo::error::Error
-fn do_single_command(args: &Args, projects: &GlProjects) -> Result<bool> {
+fn do_single_command(args: &Args, projects: &mut GlProjects) -> Result<bool> {
     match &args.command {
         Command::Path { project } => {
             if let Some(project) = projects.projects.get(project) {
@@ -68,6 +68,42 @@ fn do_single_command(args: &Args, projects: &GlProjects) -> Result<bool> {
                 }
                 println!();
             }
+            Ok(true)
+        }
+        Command::Create {
+            run_command,
+            project_name,
+            path,
+            fetch_url,
+            revision,
+            timeout_ms,
+        } => {
+            if projects.projects.get(project_name).is_some() {
+                return Err(Error::General(format!(
+                    "Project: '{}' already exists",
+                    project_name
+                )));
+            }
+            let repo = Git::init(path)?;
+            repo.remote("origin", fetch_url)?;
+            projects.insert(
+                project_name,
+                manifest::GlProject {
+                    path: path.clone(),
+                    fetch_url: fetch_url.clone(),
+                    revision: revision.clone(),
+                },
+            );
+            projects.save_to_yaml(&args.gl_manifest)?;
+            if let Err(e) = process::spawn_shell_and_wait(
+                &project_name,
+                &path,
+                run_command.into(),
+                std::time::Duration::from_millis(*timeout_ms),
+            ) {
+                return Err(e);
+            }
+
             Ok(true)
         }
         _ => Ok(false),
@@ -176,8 +212,8 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
 ///
 fn run_main() -> Result<()> {
     let args = Args::init()?;
-    let projects = load_manifest(&args.gl_manifest)?;
-    if do_single_command(&args, &projects)? {
+    let mut projects = load_manifest(&args.gl_manifest)?;
+    if do_single_command(&args, &mut projects)? {
         return Ok(());
     }
 

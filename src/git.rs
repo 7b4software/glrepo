@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::GlProject;
-use git2::{FetchOptions, Repository, Statuses};
+use git2::{build::CheckoutBuilder, FetchOptions, Repository, Statuses};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
@@ -59,7 +59,10 @@ impl Git {
         let refs = vec![&proj.revision];
         self.repo
             .find_remote("origin")
-            .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
+            .and_then(|mut remote| {
+                println!("{:?}", refs);
+                remote.fetch(&refs, Some(&mut fopt), None)
+            })
             .map_err(|e| Error::Git("fetch", e))
     }
 }
@@ -80,10 +83,22 @@ impl Git {
         })
     }
 
-    pub fn remote(&self, name: &str, url: &str) -> Result<git2::Remote> {
+    /// 'remote_name' Remote name example: "origin"
+    /// 'fetch_url' Fetch URL.
+    pub fn remote(&self, name: &str, fetch_url: &str) -> Result<git2::Remote> {
         self.repo
-            .remote(name, url)
-            .map_err(|e| Error::Git("remote", e))
+            .remote(name, fetch_url)
+            .map_err(|e| Error::Git("", e))
+    }
+
+    fn oid(identity: &str) -> Result<git2::Oid> {
+        git2::Oid::from_str(identity).map_err(|e| Error::Git("Get OID from reference", e))
+    }
+
+    fn get_commit(&self, revision: &str) -> Result<git2::Commit> {
+        self.repo
+            .find_commit(Self::oid(revision)?)
+            .map_err(|e| Error::Git("find commit", e))
     }
 
     ///
@@ -92,20 +107,24 @@ impl Git {
     /// Doing fetch if exists
     ///
     /// Return git object or an Error
-    pub fn sync(project_name: &str, project: &GlProject) -> Result<Self> {
+    pub fn sync(project_name: &str, project: &GlProject) -> Result<()> {
         if project.path.exists() {
             let git = Self::open(&project.path)?;
             git.fetch(project_name, &project)?;
-            Ok(git)
+            let commit = git.get_commit(&project.revision)?;
+            git.repo
+                .branch(&project.revision, &commit, true)
+                .map_err(|e| Error::Git("set branch", e))?;
         } else {
             let fops = Self::fetch_options(project_name);
+            let co = CheckoutBuilder::new();
             let mut builder = git2::build::RepoBuilder::new();
-            builder.fetch_options(fops);
-            let repo = builder
+            builder.fetch_options(fops).with_checkout(co);
+            builder
                 .clone(&project.fetch_url, &project.path)
                 .map_err(|e| Error::Git("clone", e))?;
-            Ok(Self { repo })
         }
+        Ok(())
     }
 
     pub fn status(&self) -> Result<Statuses> {
