@@ -186,19 +186,35 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
     }
     // okey, all projects are now pushed decrement by one
     // and then wait until all Projects has done it's job.
+    let mut res = Ok(());
     pending.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
     while *pending.lock().unwrap().get_mut() > 0 {
         match rx.try_recv() {
             Ok(e) => {
                 log::error!("{}", e);
+                res = Err(Error::General(format!("Command: {:?}", args.command)));
             }
             Err(_) => {
-                // timeout or thread dead yeah...
+                // timeout or channel rip
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
     }
-    Ok(())
+
+    // we need to empty
+    loop {
+        match rx.try_recv() {
+            Ok(e) => {
+                log::error!("{}", e);
+                res = Err(Error::General(format!("Command: {:?}", args.command)));
+            }
+            Err(_) => {
+                // All threads dead
+                break;
+            }
+        }
+    }
+    res
 }
 
 ///
@@ -217,6 +233,7 @@ fn run_main() -> Result<()> {
         return Ok(());
     }
 
+    log::info!("for each");
     do_for_each_command(&args, &projects)
 }
 
@@ -225,4 +242,5 @@ fn main() {
         log::error!("{}", e);
         std::process::exit(-1);
     }
+    log::info!("Success");
 }

@@ -33,6 +33,96 @@ impl fmt::Display for ChangedFiles {
     }
 }
 
+fn do_fetch<'a>(
+    repo: &'a Repository,
+    name: &str,
+    proj: &GlProject,
+) -> Result<git2::AnnotatedCommit<'a>> {
+    let mut fopt = Git::fetch_options(name);
+    let refs: Vec<&str> = vec![];
+    repo.find_remote("origin")
+        .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
+        .and_then(|_| repo.resolve_reference_from_short_name(&format!("origin/{}", &proj.revision)))
+        .and_then(|ref_head| repo.reference_to_annotated_commit(&ref_head))
+        .map_err(|e| Error::Git("fetch reference", e))
+}
+
+fn fast_forward(
+    repo: &Repository,
+    lb: &mut git2::Reference,
+    rc: &git2::AnnotatedCommit,
+) -> Result<()> {
+    let name = match lb.name() {
+        Some(s) => s.to_string(),
+        None => String::from_utf8_lossy(lb.name_bytes()).to_string(),
+    };
+    let msg = format!("Fast-Forward: Setting {} to id: {}", name, rc.id());
+    println!("{}", msg);
+    lb.set_target(rc.id(), &msg)
+        .map_err(|e| Error::Git("Set target", e))?;
+    repo.set_head(&name)
+        .map_err(|e| Error::Git("set head", e))?;
+    repo.checkout_head(Some(
+        git2::build::CheckoutBuilder::default()
+            // For some reason the force is required to make the working directory actually get updated
+            // I suspect we should be adding some logic to handle dirty working directory states
+            // but this is just an example so maybe not.
+            .force(),
+    ))
+    .map_err(|e| Error::Git("checkout head", e))?;
+    Ok(())
+}
+
+fn do_merge<'a>(
+    repo: &'a Repository,
+    remote_branch: &str,
+    fetch_commit: git2::AnnotatedCommit<'a>,
+) -> Result<()> {
+    // 1. do a merge analysis
+    let analysis = repo
+        .merge_analysis(&[&fetch_commit])
+        .map_err(|e| Error::Git("do_merge", e))?;
+
+    // 2. Do the appopriate merge
+    if analysis.0.is_fast_forward() {
+        println!("Doing a fast forward");
+        // do a fast forward
+        let refname = format!("refs/heads/{}", remote_branch);
+        match repo.find_reference(&refname) {
+            Ok(mut r) => {
+                fast_forward(repo, &mut r, &fetch_commit)?;
+            }
+            Err(_) => {
+                // The branch doesn't exist so just set the reference to the
+                // commit directly. Usually this is because you are pulling
+                // into an empty repository.
+                repo.reference(
+                    &refname,
+                    fetch_commit.id(),
+                    true,
+                    &format!("Setting {} to {}", remote_branch, fetch_commit.id()),
+                )
+                .map_err(|e| Error::Git("Reference", e))?;
+                repo.set_head(&refname)
+                    .map_err(|e| Error::Git("set head", e))?;
+                repo.checkout_head(Some(
+                    git2::build::CheckoutBuilder::default()
+                        .allow_conflicts(true)
+                        .conflict_style_merge(true)
+                        .force(),
+                ))
+                .map_err(|e| Error::Git("checkout head", e))?;
+            }
+        };
+    } else if analysis.0.is_normal() {
+        // do a normal merge
+        panic!("Normal merge not supported");
+    } else {
+        println!("Nothing to do...");
+    }
+    Ok(())
+}
+
 impl Git {
     fn fetch_options(project_name: &str) -> FetchOptions<'static> {
         let mut cb = git2::RemoteCallbacks::new();
@@ -52,18 +142,6 @@ impl Git {
         fopt.remote_callbacks(cb);
         fopt.download_tags(git2::AutotagOption::All);
         fopt
-    }
-
-    fn fetch(&self, name: &str, proj: &GlProject) -> Result<()> {
-        let mut fopt = Self::fetch_options(name);
-        let refs = vec![&proj.revision];
-        self.repo
-            .find_remote("origin")
-            .and_then(|mut remote| {
-                println!("{:?}", refs);
-                remote.fetch(&refs, Some(&mut fopt), None)
-            })
-            .map_err(|e| Error::Git("fetch", e))
     }
 }
 
@@ -110,19 +188,19 @@ impl Git {
     pub fn sync(project_name: &str, project: &GlProject) -> Result<()> {
         if project.path.exists() {
             let git = Self::open(&project.path)?;
-            git.fetch(project_name, &project)?;
-            let commit = git.get_commit(&project.revision)?;
-            git.repo
-                .branch(&project.revision, &commit, true)
-                .map_err(|e| Error::Git("set branch", e))?;
+            let fetch_commit = do_fetch(&git.repo, project_name, &project)?;
+            do_merge(&git.repo, &project.revision, fetch_commit)?;
         } else {
             let fops = Self::fetch_options(project_name);
             let co = CheckoutBuilder::new();
             let mut builder = git2::build::RepoBuilder::new();
             builder.fetch_options(fops).with_checkout(co);
-            builder
+            let repo = builder
                 .clone(&project.fetch_url, &project.path)
                 .map_err(|e| Error::Git("clone", e))?;
+            let fetch_commit = do_fetch(&repo, project_name, &project)?;
+            println!("\ndododo");
+            do_merge(&repo, &project.revision, fetch_commit)?;
         }
         Ok(())
     }
