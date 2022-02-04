@@ -7,11 +7,10 @@ A multi GIT project fetch tool inspired by google repo tool.
 W means work is progress.
 
  - [ ] Init?
- - [W] Sync
+ - [x] Sync
  - [x] List projects
- - [W] List changed projects
+ - [x] List changed projects
  - [x] Create project
 
  # known issues
 
-  - Sync does not setup a branch correctly after fetch/clone.

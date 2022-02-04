@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::GlProject;
-use git2::{build::CheckoutBuilder, FetchOptions, Repository, Statuses};
+use git2::{build::CheckoutBuilder, Cred, FetchOptions, Repository, Statuses};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
@@ -38,7 +38,7 @@ fn do_fetch<'a>(
     name: &str,
     proj: &GlProject,
 ) -> Result<git2::AnnotatedCommit<'a>> {
-    let mut fopt = Git::fetch_options(name);
+    let mut fopt = fetch_options(name);
     let refs: Vec<&str> = vec![];
     repo.find_remote("origin")
         .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
@@ -123,26 +123,36 @@ fn do_merge<'a>(
     Ok(())
 }
 
-impl Git {
-    fn fetch_options(project_name: &str) -> FetchOptions<'static> {
-        let mut cb = git2::RemoteCallbacks::new();
-        let project_name = project_name.to_string();
-        println!();
-        cb.transfer_progress(move |tp| {
-            print!(
-                "\r{}: received objects: {:08} of {:08}",
-                project_name,
-                tp.received_objects(),
-                tp.total_objects()
-            );
-            true
-        });
+fn fetch_options(project_name: &str) -> FetchOptions<'static> {
+    let mut cb = git2::RemoteCallbacks::new();
+    let project_name = project_name.to_string();
+    println!();
+    cb.transfer_progress(move |tp| {
+        print!(
+            "\r{}: received objects: {:08} of {:08}",
+            project_name,
+            tp.received_objects(),
+            tp.total_objects()
+        );
+        true
+    });
 
-        let mut fopt = git2::FetchOptions::new();
-        fopt.remote_callbacks(cb);
-        fopt.download_tags(git2::AutotagOption::All);
-        fopt
-    }
+    cb.credentials(|_url, username_from_url, _allowed_types| {
+        Cred::ssh_key(
+            username_from_url.unwrap_or(""),
+            None,
+            std::path::Path::new(&format!(
+                "{}/.ssh/id_ed25519",
+                std::env::var("HOME").unwrap_or(String::new())
+            )),
+            None,
+        )
+    });
+
+    let mut fopt = git2::FetchOptions::new();
+    fopt.remote_callbacks(cb);
+    fopt.download_tags(git2::AutotagOption::All);
+    fopt
 }
 
 impl Git {
@@ -169,16 +179,6 @@ impl Git {
             .map_err(|e| Error::Git("", e))
     }
 
-    fn oid(identity: &str) -> Result<git2::Oid> {
-        git2::Oid::from_str(identity).map_err(|e| Error::Git("Get OID from reference", e))
-    }
-
-    fn get_commit(&self, revision: &str) -> Result<git2::Commit> {
-        self.repo
-            .find_commit(Self::oid(revision)?)
-            .map_err(|e| Error::Git("find commit", e))
-    }
-
     ///
     /// Sync with upstream
     /// Doing clone path not exists
@@ -191,7 +191,7 @@ impl Git {
             let fetch_commit = do_fetch(&git.repo, project_name, &project)?;
             do_merge(&git.repo, &project.revision, fetch_commit)?;
         } else {
-            let fops = Self::fetch_options(project_name);
+            let fops = fetch_options(project_name);
             let co = CheckoutBuilder::new();
             let mut builder = git2::build::RepoBuilder::new();
             builder.fetch_options(fops).with_checkout(co);
@@ -199,7 +199,6 @@ impl Git {
                 .clone(&project.fetch_url, &project.path)
                 .map_err(|e| Error::Git("clone", e))?;
             let fetch_commit = do_fetch(&repo, project_name, &project)?;
-            println!("\ndododo");
             do_merge(&repo, &project.revision, fetch_commit)?;
         }
         Ok(())
