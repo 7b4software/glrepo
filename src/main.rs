@@ -96,8 +96,8 @@ fn do_single_command(args: &Args, projects: &mut GlProjects) -> Result<bool> {
             );
             projects.save_to_yaml(&args.gl_manifest)?;
             if let Err(e) = process::spawn_shell_and_wait(
-                &project_name,
-                &path,
+                project_name,
+                path,
                 run_command.into(),
                 std::time::Duration::from_millis(*timeout_ms),
             ) {
@@ -125,9 +125,8 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
 
     let pool = ThreadPool::new(args.jobs);
 
-    // Increment by one to make sure we don't accidently
-    // terminate before all threads has been pushed
-    // to the threadpool.
+    // Increment by one to make sure we don't terminate
+    // until all threads has been handled by the thread pool.
     let pending = Arc::new(Mutex::new(AtomicUsize::new(1)));
     let projects = projects.projects.clone();
     for (name, project) in projects {
@@ -137,7 +136,7 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
                     let tx2 = tx.clone();
                     let p2 = pending.clone();
                     p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
-                    // Add function to ThreadPool
+                    // Add function to the thread pool.
                     pool.execute(move || {
                         log::info!("Sync: {}", name);
                         if let Err(e) = Git::sync(&name, &project) {
@@ -148,12 +147,12 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
                 }
             }
             Command::ForEach { args, timeout_ms } => {
-                let timeout_ms = timeout_ms.clone();
+                let timeout_ms = *timeout_ms;
                 let args = args.clone();
                 let tx2 = tx.clone();
                 let p2 = pending.clone();
                 p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
-                // Add function to ThreadPool
+                // Add function to the thread pool.
                 pool.execute(move || {
                     if let Err(e) = process::spawn_shell_and_wait(
                         &name,
@@ -184,35 +183,37 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
             _ => panic!("Command: {:#?} not implemented", args.command),
         }
     }
-    // okey, all projects are now pushed decrement by one
+    // All projects are now pushed decrement by one
     // and then wait until all Projects has done it's job.
     let mut res = Ok(());
     pending.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
+    let mut errors = 0;
     while *pending.lock().unwrap().get_mut() > 0 {
         match rx.try_recv() {
             Ok(e) => {
                 log::error!("{}", e);
-                res = Err(Error::General(format!("Command: {:?}", args.command)));
+                errors += 1;
+                res = Err(Error::General(format!(
+                    "Command: {:?} has {} errors.",
+                    args.command, errors
+                )));
             }
             Err(_) => {
-                // timeout or channel rip
+                // timeout or channel endpoint terminated
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
     }
 
-    // we need to empty
-    loop {
-        match rx.try_recv() {
-            Ok(e) => {
-                log::error!("{}", e);
-                res = Err(Error::General(format!("Command: {:?}", args.command)));
-            }
-            Err(_) => {
-                // All threads dead
-                break;
-            }
-        }
+    // We need to empty any errors coming from threads.
+    // If there are error messages left.
+    while let Ok(e) = rx.try_recv() {
+        log::error!("{}", e);
+        errors += 1;
+        res = Err(Error::General(format!(
+            "Command: {:?} has {} errors.",
+            args.command, errors
+        )));
     }
     res
 }
@@ -233,7 +234,6 @@ fn run_main() -> Result<()> {
         return Ok(());
     }
 
-    log::info!("for each");
     do_for_each_command(&args, &projects)
 }
 

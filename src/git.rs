@@ -143,7 +143,7 @@ fn fetch_options(project_name: &str) -> FetchOptions<'static> {
             None,
             std::path::Path::new(&format!(
                 "{}/.ssh/id_ed25519",
-                std::env::var("HOME").unwrap_or(String::new())
+                std::env::var("HOME").unwrap_or_default()
             )),
             None,
         )
@@ -188,7 +188,7 @@ impl Git {
     pub fn sync(project_name: &str, project: &GlProject) -> Result<()> {
         if project.path.exists() {
             let git = Self::open(&project.path)?;
-            let fetch_commit = do_fetch(&git.repo, project_name, &project)?;
+            let fetch_commit = do_fetch(&git.repo, project_name, project)?;
             do_merge(&git.repo, &project.revision, fetch_commit)?;
         } else {
             let fops = fetch_options(project_name);
@@ -198,7 +198,7 @@ impl Git {
             let repo = builder
                 .clone(&project.fetch_url, &project.path)
                 .map_err(|e| Error::Git("clone", e))?;
-            let fetch_commit = do_fetch(&repo, project_name, &project)?;
+            let fetch_commit = do_fetch(&repo, project_name, project)?;
             do_merge(&repo, &project.revision, fetch_commit)?;
         }
         Ok(())
@@ -208,10 +208,9 @@ impl Git {
         let mut opt = git2::StatusOptions::new();
         opt.show(git2::StatusShow::IndexAndWorkdir);
         opt.include_untracked(true);
-        Ok(self
-            .repo
+        self.repo
             .statuses(Some(&mut opt))
-            .map_err(|e| Error::Git("status", e))?)
+            .map_err(|e| Error::Git("status", e))
     }
 
     pub fn changed(&self) -> Result<ChangedFiles> {
