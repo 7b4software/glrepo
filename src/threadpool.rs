@@ -61,7 +61,7 @@ impl Drop for ThreadPool {
         }
 
         for worker in &mut self.workers {
-            log::info!("Shutting down worker #{}", worker.id);
+            log::debug!("Shutting down worker #{}", worker.id);
 
             if let Some(thread) = worker.thread.take() {
                 thread.join().unwrap();

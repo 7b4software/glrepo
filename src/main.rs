@@ -5,6 +5,7 @@ mod manifest;
 mod process;
 mod threadpool;
 use args::{Args, Command};
+use colored::*;
 use error::{Error, Result};
 use git::Git;
 use manifest::GlProjects;
@@ -13,6 +14,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use threadpool::ThreadPool;
+
+/// Errors that comes from a thread in case a command fails to execute.
+struct ThreadError(String, Error);
+
 ///
 /// Read YAML Manifest from and return GlProjects structure on success.
 /// # Arguments
@@ -141,7 +146,7 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
                     pool.execute(move || {
                         log::info!("Sync: {}", name);
                         if let Err(e) = Git::sync(&name, &project) {
-                            tx2.send(e).ok();
+                            tx2.send(ThreadError(name.clone(), e)).ok();
                         }
                         p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
                     });
@@ -161,14 +166,14 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
                         args,
                         std::time::Duration::from_millis(timeout_ms),
                     ) {
-                        tx2.send(e).ok();
+                        tx2.send(ThreadError(name.clone(), e)).ok();
                     }
                     p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
                 });
             }
             Command::Changed { ls_files } => match Git::open(&project.path) {
                 Ok(repo) => {
-                    let files = repo.changed(&project.name)?;
+                    let files = repo.changed()?;
                     if !files.is_empty() {
                         println!("{}", name);
 
@@ -186,18 +191,13 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
     }
     // All projects are now pushed decrement by one
     // and then wait until all Projects has done it's job.
-    let mut res = Ok(());
     pending.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
-    let mut errors = 0;
+    let mut errors = vec![];
     while *pending.lock().unwrap().get_mut() > 0 {
         match rx.try_recv() {
             Ok(e) => {
-                log::error!("{}", e);
-                errors += 1;
-                res = Err(Error::General(format!(
-                    "Command: {:?} has {} errors.",
-                    args.command, errors
-                )));
+                log::error!("Project: {}: {}", e.0, e.1);
+                errors.push(e);
             }
             Err(_) => {
                 // timeout or channel endpoint terminated
@@ -209,14 +209,26 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
     // We need to empty any errors coming from threads.
     // If there are error messages left.
     while let Ok(e) = rx.try_recv() {
-        log::error!("{}", e);
-        errors += 1;
-        res = Err(Error::General(format!(
-            "Command: {:?} has {} errors.",
-            args.command, errors
-        )));
+        log::error!("Project: {}: {}", e.0.bold(), e.1);
+        errors.push(e);
     }
-    res
+
+    if !errors.is_empty() {
+        eprintln!();
+        let mut summary = format!(
+            "The following {} has errors:\n\n",
+            if errors.len() == 1 {
+                String::from("project")
+            } else {
+                format!("{} projects", errors.len())
+            }
+        );
+        for e in errors.iter() {
+            summary += &format!("{}\n", e.0);
+        }
+        return Err(Error::Summary(summary));
+    }
+    Ok(())
 }
 
 ///

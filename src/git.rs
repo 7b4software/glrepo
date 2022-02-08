@@ -44,14 +44,13 @@ fn do_fetch<'a>(
         .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
         .and_then(|_| repo.resolve_reference_from_short_name(&format!("origin/{}", &proj.revision)))
         .and_then(|ref_head| repo.reference_to_annotated_commit(&ref_head))
-        .map_err(|e| Error::Git("fetch reference", proj.name.clone(), e))
+        .map_err(|e| Error::Git("fetch reference", e))
 }
 
 fn fast_forward(
     repo: &Repository,
     lb: &mut git2::Reference,
     rc: &git2::AnnotatedCommit,
-    proj: &GlProject,
 ) -> Result<()> {
     let name = match lb.name() {
         Some(s) => s.to_string(),
@@ -60,9 +59,9 @@ fn fast_forward(
     let msg = format!("Fast-Forward: Setting {} to id: {}", name, rc.id());
     println!("{}", msg);
     lb.set_target(rc.id(), &msg)
-        .map_err(|e| Error::Git("Set target", proj.name.clone(), e))?;
+        .map_err(|e| Error::Git("Set target", e))?;
     repo.set_head(&name)
-        .map_err(|e| Error::Git("set head", proj.name.clone(), e))?;
+        .map_err(|e| Error::Git("set head", e))?;
     repo.checkout_head(Some(
         git2::build::CheckoutBuilder::default()
             // For some reason the force is required to make the working directory actually get updated
@@ -70,7 +69,7 @@ fn fast_forward(
             // but this is just an example so maybe not.
             .force(),
     ))
-    .map_err(|e| Error::Git("checkout head", proj.name.clone(), e))?;
+    .map_err(|e| Error::Git("checkout head", e))?;
     Ok(())
 }
 
@@ -78,21 +77,20 @@ fn do_merge<'a>(
     repo: &'a Repository,
     remote_branch: &str,
     fetch_commit: git2::AnnotatedCommit<'a>,
-    proj: &GlProject,
 ) -> Result<()> {
     // 1. do a merge analysis
     let analysis = repo
         .merge_analysis(&[&fetch_commit])
-        .map_err(|e| Error::Git("do_merge", proj.name.clone(), e))?;
+        .map_err(|e| Error::Git("do_merge", e))?;
 
     // 2. Do the appopriate merge
     if analysis.0.is_fast_forward() {
-        println!("Doing a fast forward");
+        log::info!("Doing a fast forward");
         // do a fast forward
         let refname = format!("refs/heads/{}", remote_branch);
         match repo.find_reference(&refname) {
             Ok(mut r) => {
-                fast_forward(repo, &mut r, &fetch_commit, proj)?;
+                fast_forward(repo, &mut r, &fetch_commit)?;
             }
             Err(_) => {
                 // The branch doesn't exist so just set the reference to the
@@ -104,23 +102,24 @@ fn do_merge<'a>(
                     true,
                     &format!("Setting {} to {}", remote_branch, fetch_commit.id()),
                 )
-                .map_err(|e| Error::Git("Reference", proj.name.clone(), e))?;
+                .map_err(|e| Error::Git("Reference", e))?;
                 repo.set_head(&refname)
-                    .map_err(|e| Error::Git("set head", proj.name.clone(), e))?;
+                    .map_err(|e| Error::Git("set head", e))?;
                 repo.checkout_head(Some(
                     git2::build::CheckoutBuilder::default()
                         .allow_conflicts(true)
                         .conflict_style_merge(true)
                         .force(),
                 ))
-                .map_err(|e| Error::Git("checkout head", proj.name.clone(), e))?;
+                .map_err(|e| Error::Git("checkout head", e))?;
             }
         };
     } else if analysis.0.is_normal() {
         // do a normal merge
-        panic!("Normal merge not supported");
+        return Err(Error::NotSupported(
+            "Git merge: Only fast forward is supported",
+        ));
     } else {
-        println!("Nothing to do...");
     }
     Ok(())
 }
@@ -160,8 +159,7 @@ fn fetch_options(project_name: &str) -> FetchOptions<'static> {
 impl Git {
     pub fn open<P: AsRef<Path>>(path: &P) -> Result<Self> {
         Ok(Self {
-            repo: Repository::open(path)
-                .map_err(|e| Error::Git("open", path.as_ref().display().to_string(), e))?,
+            repo: Repository::open(path).map_err(|e| Error::Git("open", e))?,
         })
     }
 
@@ -170,8 +168,7 @@ impl Git {
             return Self::open(&path);
         }
         Ok(Self {
-            repo: Repository::init(path)
-                .map_err(|e| Error::Git("init", path.as_ref().display().to_string(), e))?,
+            repo: Repository::init(path).map_err(|e| Error::Git("init", e))?,
         })
     }
 
@@ -180,7 +177,7 @@ impl Git {
     pub fn remote(&self, remote_name: &str, fetch_url: &str) -> Result<git2::Remote> {
         self.repo
             .remote(remote_name, fetch_url)
-            .map_err(|e| Error::Git("", fetch_url.to_string(), e))
+            .map_err(|e| Error::Git("", e))
     }
 
     ///
@@ -193,7 +190,7 @@ impl Git {
         if project.path.exists() {
             let git = Self::open(&project.path)?;
             let fetch_commit = do_fetch(&git.repo, project_name, project)?;
-            do_merge(&git.repo, &project.revision, fetch_commit, project)?;
+            do_merge(&git.repo, &project.revision, fetch_commit)?;
         } else {
             let fops = fetch_options(project_name);
             let co = CheckoutBuilder::new();
@@ -201,25 +198,25 @@ impl Git {
             builder.fetch_options(fops).with_checkout(co);
             let repo = builder
                 .clone(&project.fetch_url, &project.path)
-                .map_err(|e| Error::Git("clone", project.name.clone(), e))?;
+                .map_err(|e| Error::Git("clone", e))?;
             let fetch_commit = do_fetch(&repo, project_name, project)?;
-            do_merge(&repo, &project.revision, fetch_commit, project)?;
+            do_merge(&repo, &project.revision, fetch_commit)?;
         }
         Ok(())
     }
 
-    pub fn status(&self, project_name: &str) -> Result<Statuses> {
+    pub fn status(&self) -> Result<Statuses> {
         let mut opt = git2::StatusOptions::new();
         opt.show(git2::StatusShow::IndexAndWorkdir);
         opt.include_untracked(true);
         self.repo
             .statuses(Some(&mut opt))
-            .map_err(|e| Error::Git("status", project_name.into(), e))
+            .map_err(|e| Error::Git("status", e))
     }
 
-    pub fn changed(&self, project_name: &str) -> Result<ChangedFiles> {
+    pub fn changed(&self) -> Result<ChangedFiles> {
         let mut files = ChangedFiles::default();
-        for entry in self.status(project_name)?.iter() {
+        for entry in self.status()?.iter() {
             let status = entry.status();
             files
                 .files
