@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::{fmt, fs, io};
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct GlProject {
+    #[serde(skip)]
+    pub name: String,
     pub fetch_url: String,
     pub path: PathBuf,
     pub revision: String,
@@ -34,6 +36,7 @@ impl GlProjects {
 
     fn verify(mut self) -> Result<Self, io::Error> {
         for (name, project) in self.projects.iter_mut() {
+            project.name = name.clone();
             if project.path.as_path() == Path::new("") {
                 project.path = PathBuf::from(name);
             }

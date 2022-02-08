@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 simple_logger = {version = "2", features = ["stderr"]}
+colored = "2"
 serde = {version = "1", features = ["derive"]}
 log = "0.4"
 git2 = "0.13"

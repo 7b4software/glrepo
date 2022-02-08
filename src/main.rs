@@ -89,6 +89,7 @@ fn do_single_command(args: &Args, projects: &mut GlProjects) -> Result<bool> {
             projects.insert(
                 project_name,
                 manifest::GlProject {
+                    name: project_name.to_string(),
                     path: path.clone(),
                     fetch_url: fetch_url.clone(),
                     revision: revision.clone(),
@@ -167,7 +168,7 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
             }
             Command::Changed { ls_files } => match Git::open(&project.path) {
                 Ok(repo) => {
-                    let files = repo.changed()?;
+                    let files = repo.changed(&project.name)?;
                     if !files.is_empty() {
                         println!("{}", name);
 

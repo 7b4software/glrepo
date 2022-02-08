@@ -1,3 +1,4 @@
+use colored::*;
 use std::fmt;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
@@ -5,7 +6,7 @@ pub enum Error {
     /// Git errors
     /// 'command'
     /// 'git2::error'
-    Git(&'static str, git2::Error),
+    Git(&'static str, String, git2::Error),
     /// General error
     General(String),
     /// Project 'name' not found
@@ -23,7 +24,15 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Git(s, e) => write!(f, "Git {}: {}", s, e.message()),
+            Error::Git(command, project_name, e) => {
+                write!(
+                    f,
+                    "Git {} on '{}': {}",
+                    command,
+                    project_name.bold(),
+                    e.message()
+                )
+            }
             Error::General(s) => write!(f, "General: {}", s),
             Error::ProjectNotFound(name) => write!(f, "Project: '{}' not found.", name),
             Error::Manifest(s) => write!(f, "Manifest: {}", s),
