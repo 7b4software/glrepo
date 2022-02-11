@@ -44,9 +44,12 @@ pub enum Command {
         path: PathBuf,
         /// URL to remote repo
         fetch_url: String,
-        /// revision or branch
+        /// Branch
         #[clap(default_value = "main")]
-        revision: String,
+        reference: String,
+        /// Auto sync
+        #[clap(short, long)]
+        auto_sync: bool,
     },
 }
 

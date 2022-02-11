@@ -29,13 +29,7 @@ struct ThreadError(String, Error);
 /// Error::Manifest.
 fn load_manifest<P: AsRef<Path>>(p: P) -> Result<GlProjects> {
     log::info!("Read manifest from: '{}'", p.as_ref().display());
-    let projects = GlProjects::try_from_yaml(&p).map_err(|e| {
-        Error::Manifest(format!(
-            "Can not read: '{}' cause: '{:#?}'",
-            p.as_ref().display(),
-            e
-        ))
-    })?;
+    let projects = GlProjects::try_from_yaml(&p)?;
     Ok(projects)
 }
 
@@ -80,7 +74,8 @@ fn do_single_command(args: &Args, projects: &mut GlProjects) -> Result<bool> {
             project_name,
             path,
             fetch_url,
-            revision,
+            reference,
+            auto_sync,
             timeout_ms,
         } => {
             if projects.projects.get(project_name).is_some() {
@@ -97,7 +92,8 @@ fn do_single_command(args: &Args, projects: &mut GlProjects) -> Result<bool> {
                     name: project_name.to_string(),
                     path: path.clone(),
                     fetch_url: fetch_url.clone(),
-                    revision: revision.clone(),
+                    reference: reference.clone(),
+                    auto_sync: *auto_sync,
                 },
             );
             projects.save_to_yaml(&args.gl_manifest)?;
@@ -138,15 +134,20 @@ fn do_for_each_command(args: &Args, projects: &GlProjects) -> Result<()> {
     for (name, project) in projects {
         match &args.command {
             Command::Sync { projects } => {
-                if projects.is_empty() || projects.iter().any(|p| *p == name) {
+                let filtered_projects = !projects.is_empty();
+                if !filtered_projects || projects.iter().any(|p| *p == name) {
                     let tx2 = tx.clone();
                     let p2 = pending.clone();
                     p2.lock().unwrap().fetch_add(1, Ordering::Relaxed);
                     // Add function to the thread pool.
                     pool.execute(move || {
-                        log::info!("Sync: {}", name);
-                        if let Err(e) = Git::sync(&name, &project) {
-                            tx2.send(ThreadError(name.clone(), e)).ok();
+                        // Only sync projects that has auto_sync set to true
+                        // or sync if projects was explicit selected.
+                        if project.auto_sync || filtered_projects {
+                            log::info!("Sync: {}", name);
+                            if let Err(e) = Git::sync(&name, &project) {
+                                tx2.send(ThreadError(name.clone(), e)).ok();
+                            }
                         }
                         p2.lock().unwrap().fetch_sub(1, Ordering::Relaxed);
                     });

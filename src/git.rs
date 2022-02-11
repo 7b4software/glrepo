@@ -42,7 +42,9 @@ fn do_fetch<'a>(
     let refs: Vec<&str> = vec![];
     repo.find_remote("origin")
         .and_then(|mut remote| remote.fetch(&refs, Some(&mut fopt), None))
-        .and_then(|_| repo.resolve_reference_from_short_name(&format!("origin/{}", &proj.revision)))
+        .and_then(|_| {
+            repo.resolve_reference_from_short_name(&format!("origin/{}", &proj.reference))
+        })
         .and_then(|ref_head| repo.reference_to_annotated_commit(&ref_head))
         .map_err(|e| Error::Git("fetch reference", e))
 }
@@ -83,7 +85,7 @@ fn do_merge<'a>(
         .merge_analysis(&[&fetch_commit])
         .map_err(|e| Error::Git("do_merge", e))?;
 
-    // 2. Do the appopriate merge
+    // 2. Do the appropriate merge
     if analysis.0.is_fast_forward() {
         log::info!("Doing a fast forward");
         // do a fast forward
@@ -190,7 +192,7 @@ impl Git {
         if project.path.exists() {
             let git = Self::open(&project.path)?;
             let fetch_commit = do_fetch(&git.repo, project_name, project)?;
-            do_merge(&git.repo, &project.revision, fetch_commit)?;
+            do_merge(&git.repo, &project.reference, fetch_commit)?;
         } else {
             let fops = fetch_options(project_name);
             let co = CheckoutBuilder::new();
@@ -200,7 +202,7 @@ impl Git {
                 .clone(&project.fetch_url, &project.path)
                 .map_err(|e| Error::Git("clone", e))?;
             let fetch_commit = do_fetch(&repo, project_name, project)?;
-            do_merge(&repo, &project.revision, fetch_commit)?;
+            do_merge(&repo, &project.reference, fetch_commit)?;
         }
         Ok(())
     }
