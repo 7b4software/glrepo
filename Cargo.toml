@@ -3,6 +3,12 @@ name = "glrepo"
 version = "0.4.0"
 edition = "2021"
 license = "MIT"
+authors = ["Mikael Hermansson <mike7b4@protonmail.com>"]
+description = "A multi GIT project fetch tool inspired by google repo tool."
+homepage = "https://gitlab.com/mike7b4/glrepo"
+repository = "https://gitlab.com/mike7b4/glrepo.git"
+readme = "readme.md"
+
 
 [dependencies]
 simple_logger = {version = "2", features = ["stderr"]}
