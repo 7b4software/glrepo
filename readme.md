@@ -17,7 +17,7 @@ projects:
     # default is true so this field is not needed
     auto_sync: true
   stm32newboard-rs:
-    fetch_url: git@git.gitlab.com/mike7b4/batchecker
+    fetch_url: git@git.gitlab.com/mike7b4/stm32newboard-rs
     # stored locally under src/stm32newboard-rs since path is not specified
   linux:
     fetch_url: git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
