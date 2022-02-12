@@ -4,7 +4,7 @@ A multi GIT project fetch tool inspired by google repo tool.
 
 The manifest is YAML instead of XML:
 
-```
+```yaml
 default_reference: main
 projects_dir: src
 projects:
@@ -14,20 +14,21 @@ projects:
     reference: main
     # stored locally under src/batchecker
     path: batchecker
-    # default is true so this one is not needed
+    # default is true so this field is not needed
     auto_sync: true
   stm32newboard-rs:
     fetch_url: git@git.gitlab.com/mike7b4/batchecker
-    # stored locally under src/stm32newboard-rs sinve path is not specified
+    # stored locally under src/stm32newboard-rs since path is not specified
   linux:
     fetch_url: git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
-    # If autosync is set to false the repo is not fetched when ryn sync
+    # If autosync is set to false the repo is not fetched when sync is run.
+    # if not explicit specified with as *glrepo sync linux*
     auto_sync: false
 ```
 
 # Features
 
- - [x] *sync*
+ - [x] *sync* (optional [project] list)
  - [x] *list* project local *--path|--fetch-url|--reference|*
  - [x] run a shell command *for-each* project.
  - [x] Show *changed* projects

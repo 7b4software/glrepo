@@ -1,6 +1,6 @@
 [package]
 name = "glrepo"
-version = "0.4.1"
+version = "0.4.2pre"
 edition = "2021"
 license = "MIT"
 authors = ["Mikael Hermansson <mike7b4@protonmail.com>"]
