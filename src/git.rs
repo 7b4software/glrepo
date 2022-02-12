@@ -3,6 +3,7 @@ use crate::manifest::GlProject;
 use git2::{build::CheckoutBuilder, Cred, FetchOptions, Repository, Statuses};
 use std::collections::HashMap;
 use std::fmt;
+use std::io::Write;
 use std::path::Path;
 pub struct Git {
     repo: Repository,
@@ -129,14 +130,25 @@ fn do_merge<'a>(
 fn fetch_options(project_name: &str) -> FetchOptions<'static> {
     let mut cb = git2::RemoteCallbacks::new();
     let project_name = project_name.to_string();
-    println!();
-    cb.transfer_progress(move |tp| {
-        print!(
-            "\r{}: received objects: {:08} of {:08}",
-            project_name,
-            tp.received_objects(),
-            tp.total_objects()
-        );
+    cb.transfer_progress(move |stats| {
+        if stats.received_objects() == stats.total_objects() {
+            print!(
+                "{}: Resolving deltas \x1b[0K{}/{}\r",
+                project_name,
+                stats.indexed_deltas(),
+                stats.total_deltas()
+            );
+        } else if stats.total_objects() > 0 {
+            print!(
+                "{}: Received \x1b[0K{}/{} objects ({}) in {} bytes\r",
+                project_name,
+                stats.received_objects(),
+                stats.total_objects(),
+                stats.indexed_objects(),
+                stats.received_bytes()
+            );
+        }
+        std::io::stdout().flush().ok();
         true
     });
 
@@ -189,6 +201,7 @@ impl Git {
     ///
     /// Return git object or an Error
     pub fn sync(project_name: &str, project: &GlProject) -> Result<()> {
+        print!("\n{}: Syncing...\r", project_name);
         if project.path.exists() {
             let git = Self::open(&project.path)?;
             let fetch_commit = do_fetch(&git.repo, project_name, project)?;

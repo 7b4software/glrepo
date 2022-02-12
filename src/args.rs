@@ -76,8 +76,9 @@ impl Args {
     pub fn init() -> Result<Self, Error> {
         let mut args = Args::parse();
         let level = match args.verbose {
-            0 => log::LevelFilter::Info,
-            1 => log::LevelFilter::Debug,
+            0 => log::LevelFilter::Warn,
+            1 => log::LevelFilter::Info,
+            2 => log::LevelFilter::Debug,
             _ => log::LevelFilter::Trace,
         };
 
